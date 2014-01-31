@@ -22,7 +22,7 @@ boolean gCo = false;    //Circulation pump output - T or F
 boolean gJo = false;    //Jet output - T or F
 boolean gPo = false;    //Solar Pump output - T or F
 
-int gCBToday = 0;           //Used to determine when we are starting a new 24hour period
+byte gCBToday = 0;           //Used to determine when we are starting a new 24hour period
 int gCurrentMinute = 0;     //Used to determine when to update our CBs (every minute)
 int gHeatIndexFraction = 0; //Holds cumulative minutely temperature readings until they sum up to more than 1000
 
@@ -150,6 +150,16 @@ void getState(WebServer &pServer, WebServer::ConnectionType pType, char *pURLTai
       pServer.print(", \"solarPumpOn\":");
       pServer.print(gPo);
       
+      pServer.print(", \"clockDay\":");
+      pServer.print(gCBToday);
+      
+      pServer.print(", \"clockMinute\":");
+      pServer.print(gCurrentMinute);
+
+      pServer.print(", \"gHeatIndexFraction\":");
+      pServer.print(gHeatIndexFraction);
+      
+      
       pServer.print(", \"heaterCB\":[");
       for (int i = 1; i <= CB_SIZE; i++) {
         pServer.print(EEPROM.read(HEATER_CB_START + i));
@@ -237,7 +247,8 @@ void setup() {
     
   gMargin = 1;      //for now we will keep this hardcoded - we might want to write this to eeprom in the future if we want it flexible
 
-  gCBToday = EEPROM.read(CB_TODAY_ADDR);    //read in the last known day we recorded some data
+  gCBToday = EEPROM.read(CB_TODAY_ADDR);                        //read in the last known day we recorded some data
+
 
   Ethernet.begin(mac);
   gWebServer.setDefaultCommand(&getState);
@@ -371,7 +382,7 @@ void updateDataLog() {
   
   //Increment today's heater usage
   if (gHo) {
-    int tCurrentHeater = EEPROM.read(HEATER_CB_START + gCBToday);
+    byte tCurrentHeater = EEPROM.read(HEATER_CB_START + gCBToday);
     EEPROM.write(HEATER_CB_START + gCBToday, tCurrentHeater + 1);
   }
   
@@ -379,13 +390,14 @@ void updateDataLog() {
   gHeatIndexFraction += gTa;
   while (gHeatIndexFraction > 1000) {
     gHeatIndexFraction -= 1000;
-    int tCurrentHI = EEPROM.read(HEAT_INDEX_CB_START + gCBToday);
+    byte tCurrentHI = EEPROM.read(HEAT_INDEX_CB_START + gCBToday);
     EEPROM.write(HEAT_INDEX_CB_START + gCBToday, tCurrentHI + 1);
   }
+  //EEPROM.write(HEAT_INDEX_FRACTION_ADDR, gHeatIndexFraction);      //TODO want to record for watchdog interrupt reload purposes but need more than a byte!
   
   //Increment today's solar pump usage
   if (gPo) {
-    int tCurrentSolarPump = EEPROM.read(SOLAR_PUMP_CB_START + gCBToday);
+    byte tCurrentSolarPump = EEPROM.read(SOLAR_PUMP_CB_START + gCBToday);
     EEPROM.write(SOLAR_PUMP_CB_START + gCBToday, tCurrentSolarPump + 1);
   }  
 }
