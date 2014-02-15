@@ -6,7 +6,9 @@
 #include "RTClib.h"
 
 
-const float gVersion = 2.8;
+const float gVersion = 2.9;
+//Adding remote XBEE metrics gathering - use with XBEE_RECEIVE and XBEE_REMOTE_TEMP
+
 //Adding some data persistence
 
 //Connecting solar pump to SOLAR_PUMP_PIN and turning on SOLAR_PUMP_PIN whenever
@@ -23,8 +25,12 @@ boolean gJo = false;    //Jet output - T or F
 boolean gPo = false;    //Solar Pump output - T or F
 
 byte gCBToday = 0;           //Used to determine when we are starting a new 24hour period
-int gCurrentMinute = 0;     //Used to determine when to update our CBs (every minute)
-int gHeatIndexFraction = 0; //Holds cumulative minutely temperature readings until they sum up to more than 1000
+int gCurrentMinute = 0;      //Used to determine when to update our CBs (every minute)
+int gHeatIndexFraction = 0;  //Holds cumulative minutely temperature readings until they sum up to more than 1000
+int gSolarPumpFraction = 0;  //Holds cumulative minutely gPo recordings until they add up to more than 4
+
+String gXBeeRelayData = "";      //Holds latest data from I2C XBee relay
+
 
 #define PREFIX "/spa"
 WebServer gWebServer(PREFIX, 8084);
@@ -158,7 +164,10 @@ void getState(WebServer &pServer, WebServer::ConnectionType pType, char *pURLTai
 
       pServer.print(", \"gHeatIndexFraction\":");
       pServer.print(gHeatIndexFraction);
-      
+
+      pServer.print(", \"gXBeeRelayData\":");
+      pServer.print(gXBeeRelayData);
+            
       
       pServer.print(", \"heaterCB\":[");
       for (int i = 1; i <= CB_SIZE; i++) {
@@ -363,27 +372,23 @@ void updateHeaterSettings() {
 }
 
 void updateDataLog() {
-  //update only once per minute
   DateTime tNow = gRTC.now();
-  if (tNow.minute() == gCurrentMinute)
-    return;
-  
-  gCurrentMinute = tNow.minute();
-  
+
   //check to see if this is a new day
   if (tNow.day() != gCBToday) {
     //new day, we need to reset today's bucket
     gCBToday = tNow.day();
     EEPROM.write(CB_TODAY_ADDR, gCBToday);
-    EEPROM.write(HEATER_CB_START + gCBToday, 0);
+    /*EEPROM.write(HEATER_CB_START + gCBToday, 0);
     EEPROM.write(HEAT_INDEX_CB_START + gCBToday, 0);
-    EEPROM.write(SOLAR_PUMP_CB_START + gCBToday, 0);
+    EEPROM.write(SOLAR_PUMP_CB_START + gCBToday, 0);*/
   }
   
   //Increment today's heater usage
   if (gHo) {
     byte tCurrentHeater = EEPROM.read(HEATER_CB_START + gCBToday);
-    EEPROM.write(HEATER_CB_START + gCBToday, tCurrentHeater + 1);
+    if (tCurrentHeater < 254)
+      EEPROM.write(HEATER_CB_START + gCBToday, tCurrentHeater + 1);
   }
   
   //Increment today's Heat Index
@@ -391,23 +396,57 @@ void updateDataLog() {
   while (gHeatIndexFraction > 1000) {
     gHeatIndexFraction -= 1000;
     byte tCurrentHI = EEPROM.read(HEAT_INDEX_CB_START + gCBToday);
-    EEPROM.write(HEAT_INDEX_CB_START + gCBToday, tCurrentHI + 1);
+    if (tCurrentHI < 254)
+      EEPROM.write(HEAT_INDEX_CB_START + gCBToday, tCurrentHI + 1);
   }
   //EEPROM.write(HEAT_INDEX_FRACTION_ADDR, gHeatIndexFraction);      //TODO want to record for watchdog interrupt reload purposes but need more than a byte!
   
   //Increment today's solar pump usage
   if (gPo) {
-    byte tCurrentSolarPump = EEPROM.read(SOLAR_PUMP_CB_START + gCBToday);
-    EEPROM.write(SOLAR_PUMP_CB_START + gCBToday, tCurrentSolarPump + 1);
+    gSolarPumpFraction ++;
+    if (gSolarPumpFraction > 4) {
+      gSolarPumpFraction -= 4;
+      byte tCurrentSolarPump = EEPROM.read(SOLAR_PUMP_CB_START + gCBToday);
+      if (tCurrentSolarPump < 254)
+        EEPROM.write(SOLAR_PUMP_CB_START + gCBToday, tCurrentSolarPump + 1);
+    }
   }  
+}
+
+void checkXBeeRelay() {
+  Wire.requestFrom(2, 100);    // request 100 bytes from slave device #2
+
+  gXBeeRelayData = String();
+
+  while(Wire.available())    // slave may send less than requested
+  { 
+    char tChar = Wire.read(); // receive a byte as character
+    if (tChar <= 0)
+      break;
+
+    gXBeeRelayData += tChar;
+  }
+
+  if (gXBeeRelayData.length() == 0)
+    gXBeeRelayData = "I2C XBEE Relay error";
+
+  Serial.println(gXBeeRelayData);
 }
 
 void loop() {
   updateHeaterSettings();
   
-  updateDataLog();
-  
   solarPump();
+
+  //update only once per minute
+  DateTime tNow = gRTC.now();
+  if (tNow.minute() != gCurrentMinute) {
+    gCurrentMinute = tNow.minute();
+    
+    updateDataLog();
+    
+    checkXBeeRelay();
+  }  
       
   gWebServer.processConnection();
 }
