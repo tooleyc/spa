@@ -29,7 +29,8 @@ int gCurrentMinute = 0;      //Used to determine when to update our CBs (every m
 int gHeatIndexFraction = 0;  //Holds cumulative minutely temperature readings until they sum up to more than 1000
 int gSolarPumpFraction = 0;  //Holds cumulative minutely gPo recordings until they add up to more than 4
 
-String gXBeeRelayData = "";      //Holds latest data from I2C XBee relay
+char gXBeeRelayData[100];      //Holds latest data from I2C XBee relay
+int gXBeeRelayDataPos = 0;
 
 
 #define PREFIX "/spa"
@@ -235,7 +236,7 @@ void setup() {
   #ifdef RESET_ALL_CB
     resetCircularBuffers();
   #endif
-
+  
   pinMode(CIRC_PIN, OUTPUT);
   digitalWrite(CIRC_PIN, HIGH);      //Safe to default circulation pump to off
 
@@ -416,7 +417,7 @@ void updateDataLog() {
 void checkXBeeRelay() {
   Wire.requestFrom(2, 100);    // request 100 bytes from slave device #2
 
-  gXBeeRelayData = String();
+  gXBeeRelayDataPos = 0;
 
   while(Wire.available())    // slave may send less than requested
   { 
@@ -424,11 +425,11 @@ void checkXBeeRelay() {
     if (tChar <= 0)
       break;
 
-    gXBeeRelayData += tChar;
+    gXBeeRelayData[gXBeeRelayDataPos] = tChar;
+    gXBeeRelayDataPos ++;
   }
 
-  if (gXBeeRelayData.length() == 0)
-    gXBeeRelayData = "I2C XBEE Relay error";
+  gXBeeRelayData[gXBeeRelayDataPos] = '\0';
 
   Serial.println(gXBeeRelayData);
 }
